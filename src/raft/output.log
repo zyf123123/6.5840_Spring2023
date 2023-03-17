@@ -1,0 +1,55 @@
+000003 INFO 0 start
+000005 INFO 1 start
+000005 INFO 2 start
+Test (2A): initial election ...
+014582 INFO 2 Election is begin during term 0
+014598 TERM 0 is turning to term 1
+014599 VOTE 0 vote for 2
+014599 TERM 0 is during term 1
+014602 TERM 1 is turning to term 1
+014602 VOTE 1 vote for 2
+014602 TERM 1 is during term 1
+labgob warning: Decoding into a non-default variable/field VoteGranted may not work
+014603 LEAD 2 become leader at term 1!
+014604 INFO 2 send new leader to 0
+014606 CLNT 0 received heartbeat during term 1
+014607 INFO 2 send new leader to 1
+014609 CLNT 1 received heartbeat during term 1
+016191 INFO 2 send heartbeat to 0
+016199 INFO 2 send heartbeat to 1
+017952 INFO 2 send heartbeat to 0
+017958 INFO 2 send heartbeat to 1
+021111 INFO 2 send heartbeat to 0
+021118 INFO 2 send heartbeat to 1
+023744 INFO 2 send heartbeat to 0
+023747 INFO 2 send heartbeat to 1
+027019 INFO 2 send heartbeat to 0
+027025 INFO 2 send heartbeat to 1
+030169 INFO 2 send heartbeat to 0
+030178 INFO 2 send heartbeat to 1
+031087 INFO 1 Election is begin during term 1
+031094 TERM 0 is turning to term 2
+031095 VOTE 0 vote for 1
+031095 TERM 0 is during term 2
+031099 TERM 2 is turning to term 2
+031099 VOTE 2 vote for 1
+031099 TERM 2 is during term 2
+031100 LEAD 1 become leader at term 2!
+031100 INFO 1 send new leader to 0
+031102 CLNT 0 received heartbeat during term 2
+031103 INFO 1 send new leader to 2
+031104 CLNT 2 received heartbeat during term 2
+033336 INFO 1 send heartbeat to 0
+033343 INFO 1 send heartbeat to 2
+034403 INFO 1 send heartbeat to 0
+034409 INFO 1 send heartbeat to 2
+warning: term changed even though there were no failures036451 INFO 1 send heartbeat to 0
+036456 INFO 1 send heartbeat to 2
+037851 INFO 1 send heartbeat to 0
+037856 INFO 1 send heartbeat to 2
+  ... Passed --   4.0  3   28    3360    0
+040457 WARN 0 is unconnected
+040457 WARN 1 is unconnected
+040457 WARN 2 is unconnected
+PASS
+ok  	6.5840/raft	4.163s
