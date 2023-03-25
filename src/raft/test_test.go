@@ -398,6 +398,7 @@ loop:
 
 		for j := 0; j < servers; j++ {
 			if t, _ := cfg.rafts[j].GetState(); t != term {
+				//fmt.Printf("term change")
 				// term changed -- can't expect low RPC counts
 				continue loop
 			}
