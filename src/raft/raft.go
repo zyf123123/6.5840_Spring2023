@@ -44,6 +44,7 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
+	CommandTerm  int
 
 	// For 2D:
 	SnapshotValid bool
@@ -240,19 +241,17 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 
 	rf.Snapshot(args.LastIncludedIndex, args.Data) // discard
 
-	go func() {
-		rf.mu.Lock()
-		applymsg := ApplyMsg{
-			CommandValid:  false,
-			SnapshotValid: true,
-			Snapshot:      args.Data,
-			SnapshotTerm:  args.LastIncludedTerm,
-			SnapshotIndex: args.LastIncludedIndex,
-		}
-		rf.mu.Unlock()
-		rf.applyCh <- applymsg
+	//rf.mu.Lock()
+	applymsg := ApplyMsg{
+		CommandValid:  false,
+		SnapshotValid: true,
+		Snapshot:      args.Data,
+		SnapshotTerm:  args.LastIncludedTerm,
+		SnapshotIndex: args.LastIncludedIndex,
+	}
+	//rf.mu.Unlock()
 
-	}()
+	rf.applyCh <- applymsg
 
 }
 
@@ -615,30 +614,10 @@ func (rf *Raft) checkLogsAgreement() {
 			rf.mu.Unlock()
 		}
 	}
-	rf.mu.Lock()
-
-	if rf.state == LEADER { //update leader commit
-		for i := rf.lastLogIndex; i > rf.commitIndex; i-- {
-			logIndex := len(rf.log) - 1 - rf.lastLogIndex + i
-			flag := 1
-			for j, x := range rf.matchIndex {
-				if x >= i && j != rf.me {
-					flag++
-				}
-			}
-			if flag > len(rf.peers)/2 && rf.log[logIndex].Term == rf.currentTerm {
-				rf.commitIndex = i
-				rf.commitCond.Signal()
-				Debug(dLog, "%v has %v log now", rf.me, rf.lastLogIndex)
-				Debug(dCommit, "%v commit index = %v", rf.me, rf.commitIndex)
-			}
-		}
-	}
-	rf.mu.Unlock()
 
 }
 
-func (rf *Raft) CommitCommand(applyCh chan<- ApplyMsg) {
+func (rf *Raft) CommitCommand() {
 	//if commitIndex > lastApplied
 	//apply log[lastApplied] to state machine
 	for !rf.killed() {
@@ -664,20 +643,20 @@ func (rf *Raft) CommitCommand(applyCh chan<- ApplyMsg) {
 		}
 		rf.mu.Unlock()
 
-		go func() {
-			for i, log := range newlog {
-				//applyPos := startPos + i
-				applyIndex := startIndex + i
-				l := log
-				app := ApplyMsg{
-					CommandValid: true,
-					Command:      l.Command,
-					CommandIndex: applyIndex,
-				}
-				rf.applyCh <- app
-				Debug(dCommit, "%v apply command %v to the server for id %v", rf.me, log, applyIndex)
+		for i, log := range newlog {
+			//applyPos := startPos + i
+			applyIndex := startIndex + i
+			l := log
+			app := ApplyMsg{
+				CommandValid: true,
+				Command:      l.Command,
+				CommandIndex: applyIndex,
+				CommandTerm:  l.Term,
 			}
-		}()
+			Debug(dClient, "%v appmsg %v", rf.me, app)
+			rf.applyCh <- app
+			Debug(dCommit, "%v apply command %v to the server for id %v", rf.me, log, applyIndex)
+		}
 
 		rf.mu.Lock()
 		if commitIndex > rf.lastApplied {
@@ -737,9 +716,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.persist()
 	rf.mu.Unlock()
 	//rf.checkLogsAgreement()
-	//
-	//
-	//
 
 	return index, term, isLeader
 }
@@ -821,9 +797,35 @@ func (rf *Raft) AttemptElection() bool {
 	}
 }
 
+func (rf *Raft) checkLeaderCommit() {
+	for !rf.killed() {
+		rf.mu.Lock()
+		if rf.state == LEADER { //update leader commit
+			for i := rf.lastLogIndex; i > rf.commitIndex; i-- {
+				logIndex := len(rf.log) - 1 - rf.lastLogIndex + i
+				flag := 1
+				for j, x := range rf.matchIndex {
+					if x >= i && j != rf.me {
+						flag++
+					}
+				}
+				if flag > len(rf.peers)/2 && rf.log[logIndex].Term == rf.currentTerm {
+					rf.commitIndex = i
+					rf.commitCond.Signal()
+					Debug(dLog, "%v has %v log now", rf.me, rf.lastLogIndex)
+					Debug(dCommit, "%v commit index = %v", rf.me, rf.commitIndex)
+				}
+			}
+		}
+		rf.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+
+	}
+}
+
 func (rf *Raft) ticker() {
 	//rand.Seed(time.Now().Unix())
-	timeout := 250 + (rand.Int() % 150)
+	timeout := 200 + (rand.Int() % 150)
 	//
 	heartbeatTimeout := 100
 	for !rf.killed() {
@@ -895,7 +897,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// start ticker goroutine to start elections
 	Debug(dInfo, "%v start", rf.me)
 	go rf.ticker()
-	go rf.CommitCommand(rf.applyCh)
+	go rf.CommitCommand()
+	go rf.checkLeaderCommit()
 
 	return rf
 }

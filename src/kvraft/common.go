@@ -10,9 +10,11 @@ type Err string
 
 // Put or Append
 type PutAppendArgs struct {
-	Key   string
-	Value string
-	Op    string // "Put" or "Append"
+	Key       string
+	Value     string
+	Op        string // "Put" or "Append"
+	SerialNum int
+	ClientId  int64
 	// You'll have to add definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
@@ -23,11 +25,18 @@ type PutAppendReply struct {
 }
 
 type GetArgs struct {
-	Key string
+	Key       string
+	SerialNum int
+	ClientId  int64
+
 	// You'll have to add definitions here.
 }
 
 type GetReply struct {
 	Err   Err
 	Value string
+}
+
+type KVMsg struct {
+	Timeout bool
 }

@@ -1,14 +1,16 @@
 package kvraft
 
 import (
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raft"
-	"log"
-	"sync"
-	"sync/atomic"
 )
 
+/*
 const Debug = false
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
@@ -16,13 +18,18 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 		log.Printf(format, a...)
 	}
 	return
-}
-
+}*/
 
 type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	Action    string // get put append
+	Key       string
+	Value     string
+	SerialNum int
+	ClientId  int64
+	GetValue  string
 }
 
 type KVServer struct {
@@ -35,15 +42,174 @@ type KVServer struct {
 	maxraftstate int // snapshot if log grows this big
 
 	// Your definitions here.
+	kvSet          map[string]string
+	duplicateTable map[int64][]int
+	leaderTerm     int
+	kvChan         map[int]chan Op
+	chanIndex      int
 }
-
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
+	op := Op{
+		Action: "Get",
+		Key:    args.Key,
+	}
+	index, _, isLeader := kv.rf.Start(op)
+	if !isLeader {
+		reply.Value = ""
+		reply.Err = "ErrWrongLeader"
+		return
+	}
+
+	kv.mu.Lock()
+	ch := make(chan Op)
+	kv.kvChan[index] = ch
+	kv.mu.Unlock()
+	var opMsg Op
+
+	select {
+	case opMsg = <-ch:
+		kv.mu.Lock()
+		value := opMsg.GetValue
+		kv.kvChan[index] = nil
+		kv.mu.Unlock()
+		if value != "" {
+			reply.Value = value
+			Debug(dClient, "server will return %v ", opMsg)
+			reply.Err = "OK"
+
+		} else {
+			reply.Value = ""
+			reply.Err = "ErrNoKey"
+		}
+		//Debug(dInfo, "%v", op)
+
+	case <-time.After(500 * time.Millisecond):
+		reply.Err = "ErrWrongLeader"
+	}
+	//Debug(dClient, "%v with reply %v", kv.me, reply.Err)
+
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Your code here.
+	op := Op{
+		Action:    args.Op,
+		Key:       args.Key,
+		Value:     args.Value,
+		ClientId:  args.ClientId,
+		SerialNum: args.SerialNum,
+	}
+
+	index, _, isLeader := kv.rf.Start(op)
+	if !isLeader {
+		reply.Err = "ErrWrongLeader"
+
+		//Debug(dInfo, "%v server will return %v", kv.me, reply.Err)
+		return
+	}
+	kv.mu.Lock()
+	ch := make(chan Op)
+	kv.kvChan[index] = ch
+	kv.mu.Unlock()
+
+	Debug(dClient, "%v %v index ", kv.me, index)
+
+	select {
+	case getMsg := <-ch:
+		kv.mu.Lock()
+		kv.kvChan[index] = nil
+		kv.mu.Unlock()
+		reply.Err = "OK"
+		Debug(dInfo, "%v server get command in index %v will return %v", kv.me, index, getMsg)
+
+	case <-time.After(500 * time.Millisecond):
+		reply.Err = "ErrWrongLeader"
+		Debug(dInfo, "%v server will return %v", kv.me, reply.Err)
+
+	}
+
+	//Debug(dClient, "%v with reply %v %v", kv.me, reply.Err, args.Op)
+}
+
+func (kv *KVServer) IsDuplicate(clientId int64, serialNum int) bool {
+	duplicateList, ok := kv.duplicateTable[clientId]
+	duplicate := false
+	if ok {
+		//fmt.Printf("%v\n", duplicateList)
+		for i := len(duplicateList) - 1; i >= 0; i-- { // need optimaze
+			if duplicateList[i] == serialNum { //duplicate
+				duplicate = true
+				break
+			}
+		}
+	}
+	if !duplicate {
+		kv.duplicateTable[clientId] = append(kv.duplicateTable[clientId], serialNum)
+	}
+	return duplicate
+}
+
+func (kv *KVServer) ApplyCommandTicker() {
+	//apply log and snapshot to state machine
+	for !kv.killed() {
+		appmsg := <-kv.applyCh
+		//Debug(dInfo, "%v get %v", kv.me, appmsg)
+		if appmsg.CommandValid {
+			kv.mu.Lock()
+			command := appmsg.Command
+			index := appmsg.CommandIndex
+			op := command.(Op)
+
+			getValue := kv.ApplyCommand(op)
+			currentTerm, isLeader := kv.rf.GetState()
+			if isLeader && currentTerm == appmsg.CommandTerm {
+				ch := kv.kvChan[index]
+				op.GetValue = getValue
+				//kv.mu.Unlock()
+				ch <- op
+				Debug(dInfo, "%v send to %v at term %v", kv.me, index, currentTerm)
+				//return
+
+				//kv.mu.Lock()
+			}
+			kv.mu.Unlock()
+
+			Debug(dInfo, "%v apply command %v in index %v", kv.me, command, index)
+
+		}
+
+	}
+
+	//time.Sleep(time.Millisecond)
+}
+
+func (kv *KVServer) ApplyCommand(operation Op) string {
+	action := operation.Action
+	clientId := operation.ClientId
+	serialNum := operation.SerialNum
+	getValue := ""
+	//Debug(dInfo, "duplicate %v %v", duplicate, operation)
+
+	switch action {
+	case "Get":
+		getValue = kv.kvSet[operation.Key]
+	case "Put":
+		duplicate := kv.IsDuplicate(clientId, serialNum)
+		if !duplicate {
+			kv.kvSet[operation.Key] = operation.Value
+			Debug(dClient, "%v put %v %v at %v", kv.me, operation.Key, operation.Value, operation.SerialNum)
+		}
+
+	case "Append":
+		duplicate := kv.IsDuplicate(clientId, serialNum)
+		if !duplicate {
+			kv.kvSet[operation.Key] += operation.Value
+			Debug(dClient, "%v append %v at %v", kv.me, operation.Value, operation.SerialNum)
+		}
+	}
+	return getValue
 }
 
 // the tester calls Kill() when a KVServer instance won't
@@ -92,6 +258,12 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	// You may need initialization code here.
+	kv.kvSet = make(map[string]string)
+	kv.duplicateTable = make(map[int64][]int)
+	kv.leaderTerm = -1
+	kv.kvChan = make(map[int]chan Op)
+	kv.chanIndex = 0
 
+	go kv.ApplyCommandTicker()
 	return kv
 }
