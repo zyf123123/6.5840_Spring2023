@@ -104,6 +104,18 @@ type Raft struct {
 
 }
 
+func (rf *Raft) GetRaftStateSize() int {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	return rf.persister.RaftStateSize()
+}
+
+func (rf *Raft) GetSnapShot() []byte {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	return rf.persister.ReadSnapshot()
+}
+
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
@@ -223,6 +235,12 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 			}
 		}
 	*/
+	if args.LastIncludedIndex <= rf.commitIndex { // outdated
+		Debug(dError, "%v outdated lastlogindex %v commitindex %v", rf.me, rf.lastLogIndex, rf.commitIndex)
+		rf.mu.Unlock()
+		return
+	}
+
 	if args.LastIncludedIndex > rf.lastLogIndex {
 		rf.lastLogIndex = args.LastIncludedIndex
 	}
@@ -235,7 +253,6 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		rf.lastApplied = args.LastIncludedIndex
 		//Debug(dCommit, "%v last applied become %v", rf.me, rf.lastApplied)
 	}
-	//
 	//
 	rf.mu.Unlock()
 
@@ -274,6 +291,11 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	newLog := make([]Log, 1)
 
 	pos := len(rf.log) - rf.lastLogIndex + index // new log index start from 1
+	if pos <= 0 {
+		Debug(dError, "%v log pos < 0 lastlogindex %v index %v", rf.me, rf.lastLogIndex, index)
+		return // follower had snapshot
+	}
+	//
 	for i := pos; i <= lastLog; i++ {
 		newLog = append(newLog, rf.log[i])
 	}
@@ -455,7 +477,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.XTerm = rf.log[prevLogPos].Term
 		index := prevLogPos
 		term := rf.log[index].Term
-		for rf.log[index-1].Term == term {
+		for index != 0 && rf.log[index-1].Term == term {
 			index--
 		}
 		reply.XIndex = index
