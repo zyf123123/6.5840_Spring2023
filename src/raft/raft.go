@@ -22,6 +22,7 @@ import (
 
 	"bytes"
 	"math/rand"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -495,7 +496,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if index == len(rf.log) { //dont exist dirictly insert
 			rf.log = append(rf.log, args.Entries[i])
 			rf.lastLogIndex++
-		} else if rf.log[index] != args.Entries[i] { // exist but confilct
+		} else if reflect.DeepEqual(rf.log[index], args.Entries[i]) { // exist but confilct
 			Debug(dLog2, "%v log %v different from %v in index %v", rf.me, args.Entries[i], rf.log[index], args.PrevLogIndex)
 			rf.log = rf.log[0:index] // remove log after index
 			rf.log = append(rf.log, args.Entries[i])

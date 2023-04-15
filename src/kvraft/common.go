@@ -36,7 +36,3 @@ type GetReply struct {
 	Err   Err
 	Value string
 }
-
-type KVMsg struct {
-	Timeout bool
-}
