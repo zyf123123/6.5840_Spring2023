@@ -46,7 +46,7 @@ func getVerbosity() int {
 var debugStart time.Time
 var debugVerbosity int
 
-const debug = 1
+const debug = 0
 
 func init() {
 	debugVerbosity = getVerbosity()

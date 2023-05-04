@@ -14,6 +14,7 @@ const (
 	ErrNoKey       = "ErrNoKey"
 	ErrWrongGroup  = "ErrWrongGroup"
 	ErrWrongLeader = "ErrWrongLeader"
+	ErrShardNotOk  = "ErrShardNotOk"
 )
 
 type Err string
@@ -45,4 +46,25 @@ type GetArgs struct {
 type GetReply struct {
 	Err   Err
 	Value string
+}
+
+type AskShardArgs struct {
+	Shard     int
+	ConfigNum int
+}
+
+type AskShardReply struct {
+	KvSet          map[string]string
+	DuplicateTable map[int64][]int
+	LastSerialNum  map[int64]int
+	Err            Err
+}
+
+type DeleteShardArgs struct {
+	Shard     int
+	ConfigNum int
+}
+
+type DeleteShardReply struct {
+	Err Err
 }

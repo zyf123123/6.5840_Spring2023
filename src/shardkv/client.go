@@ -71,6 +71,8 @@ func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.Client
 func (ck *Clerk) Get(key string) string {
 	args := GetArgs{}
 	args.Key = key
+	args.ClientId = ck.clientId
+	args.SerialNum = ck.sequenceNum
 
 	for {
 		shard := key2shard(key)
@@ -85,8 +87,13 @@ func (ck *Clerk) Get(key string) string {
 					return reply.Value
 				}
 				if ok && (reply.Err == ErrWrongGroup) {
+					Debug(dWarn, "%v shard %v reply %v", ck.clientId, shard, ErrWrongGroup)
 					break
 				}
+				if !ok || reply.Err == ErrWrongLeader || reply.Err == ErrShardNotOk {
+					continue
+				}
+
 				// ... not ok, or ErrWrongLeader
 			}
 		}
@@ -105,6 +112,8 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.Key = key
 	args.Value = value
 	args.Op = op
+	args.ClientId = ck.clientId
+	args.SerialNum = ck.sequenceNum
 
 	for {
 		shard := key2shard(key)
@@ -115,11 +124,17 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				var reply PutAppendReply
 				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
 				if ok && reply.Err == OK {
+					ck.sequenceNum++
 					return
 				}
 				if ok && reply.Err == ErrWrongGroup {
+					Debug(dWarn, "%v shard %v gid %v reply %v", ck.clientId, shard, gid, ErrWrongGroup)
 					break
 				}
+				if !ok || reply.Err == ErrWrongLeader || reply.Err == ErrShardNotOk {
+					continue
+				}
+
 				// ... not ok, or ErrWrongLeader
 			}
 		}
