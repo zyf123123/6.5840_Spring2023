@@ -883,6 +883,17 @@ func (rf *Raft) ticker() {
 
 	}
 }
+func (rf *Raft) HasLogAtCurrentTerm() bool {
+	rf.mu.Lock()
+
+	if rf.log[len(rf.log)-1].Term == rf.currentTerm {
+		rf.mu.Unlock()
+		return true
+	}
+	rf.mu.Unlock()
+	return false
+
+}
 
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this

@@ -488,10 +488,7 @@ func (kv *ShardKV) FetchConfig(config shardctrler.Config) {
 		} else if kv.lastconfig.Shards[i] == kv.gid && kv.config.Shards[i] != targetServerGid && kv.config.Shards[i] != 0 {
 			// need offer data to others
 			kv.shardList[i].State = offering
-			Debug(dInfo, "%v %v shard %v state is offering at %v", kv.gid, kv.me, i, config.Num)
-			//
-			//
-			//
+			Debug(dInfo, "%v %v shard %v state is offering at %v", kv.gid, kv.me, i, config.Num) //
 		}
 	}
 
@@ -557,6 +554,10 @@ func (kv *ShardKV) AskForShard(targetServer []string, shard int) {
 }
 
 func (kv *ShardKV) InstallShard(kvSet map[string]string, duplicateTable map[int64][]int, lastSerialNum map[int64]int, shard int) {
+	/*
+		if kv.shardList[shard].State != pulling {
+			return
+		}*/
 	Debug(dInfo, "%v try install shard %v", kv.me, shard)
 	op := Op{
 		Action:         "InstallShard",
@@ -633,7 +634,10 @@ func (kv *ShardKV) DeleteForShard(targetServer []string, shard int) {
 	}
 }
 func (kv *ShardKV) ReservingShard(shard int) {
-
+	/*
+		if kv.shardList[shard].State != pullend {
+			return
+		}*/
 	Debug(dInfo, "%v reserve shard %v", kv.me, shard)
 	op := Op{
 		Action: "ReservingShard",
@@ -693,8 +697,6 @@ func (kv *ShardKV) AskShard(args *AskShardArgs, reply *AskShardReply) {
 	ch := make(chan Op)
 	kv.kvChan[index] = ch
 	kv.mu.Unlock()
-
-	//Debug(dClient, "%v %v index ", kv.me, index)
 
 	select {
 	case getMsg := <-ch:
@@ -781,6 +783,36 @@ func (kv *ShardKV) DeleteShard(args *DeleteShardArgs, reply *DeleteShardReply) {
 		Debug(dInfo, "%v server will return %v", kv.me, reply.Err)
 	}
 }
+func (kv *ShardKV) EmptyCommitTicker() {
+	for {
+		if !kv.rf.HasLogAtCurrentTerm() {
+			op := Op{
+				Action: "EmptyCommit",
+			}
+			index, _, isLeader := kv.rf.Start(op)
+			if isLeader {
+				kv.mu.Lock()
+				ch := make(chan Op)
+				kv.kvChan[index] = ch
+				kv.mu.Unlock()
+
+				//Debug(dClient, "%v %v index ", kv.me, index)
+
+				select {
+				case <-ch:
+					kv.mu.Lock()
+					kv.kvChan[index] = nil
+					kv.mu.Unlock()
+					//Debug(dInfo, "%v server get command in index %v will return %v", kv.me, index, getMsg)
+
+				case <-time.After(500 * time.Millisecond):
+				}
+			}
+
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
 
 // the tester calls Kill() when a ShardKV instance won't
 // be needed again. you are not required to do anything
@@ -862,6 +894,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	go kv.FetchConfigTicker()
 	go kv.ShardTransTicker()
 	go kv.DeleteShardTicker()
+	go kv.EmptyCommitTicker()
 	///
 
 	return kv
